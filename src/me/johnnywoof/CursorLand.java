@@ -1,11 +1,13 @@
 package me.johnnywoof;
 
 import me.johnnywoof.threads.CursorCleanupThread;
+import me.johnnywoof.threads.KeepAliveTask;
 import me.johnnywoof.threads.UDPReadThread;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
 import java.awt.image.BufferedImage;
@@ -23,11 +25,11 @@ import java.util.concurrent.CopyOnWriteArraySet;
 
 public class CursorLand extends JPanel {
 
-	public static final int DATA_LENGTH = 24;
+	public static final int DATA_LENGTH = 26;
 
 	public final MulticastSocket socket;
 	public final InetAddress group;
-	private final byte[] uuid;
+	public final byte[] uuid;
 
 	private long lastSent = 0;
 
@@ -36,6 +38,7 @@ public class CursorLand extends JPanel {
 	public final Set<CursorObject> cursors = new CopyOnWriteArraySet<>();
 
 	private final java.util.Timer cleanupTimer = new Timer();
+	private final Timer keepAliveTimer = new Timer();
 
 	public CursorLand() throws IOException {
 
@@ -56,6 +59,14 @@ public class CursorLand extends JPanel {
 
 		this.addMouseMotionListener(this.getMouseListener());
 
+		this.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mouseExited(MouseEvent e) {
+				super.mouseExited(e);
+				CursorLand.this.broadcastCursorExit();
+			}
+		});
+
 	}
 
 	public MouseMotionAdapter getMouseListener() {
@@ -68,25 +79,49 @@ public class CursorLand extends JPanel {
 		};
 	}
 
-	public void onPacket(byte[] data) {
+	public void onPacket(byte[] rawData) {
 
-		//System.out.println("Packet income");
+		//Decent packet filtering
+		if (rawData.length != 26)
+			return;
 
-		byte[] uuid = Arrays.copyOf(data, 16);
+		//2 bytes = packet ID
+		//16 bytes = our uuid
+		//4 bytes = x value
+		//4 bytes = y value
 
+		ByteBuffer data = ByteBuffer.wrap(rawData);
+
+		short packetID = data.getShort();
+		byte[] uuid = new byte[16];
+
+		data = data.get(uuid);
+
+		//We only care about other users
 		if (Arrays.equals(uuid, this.uuid))
 			return;
 
 		for (CursorObject c : this.cursors) {
 			if (c.isUUID(uuid)) {
-				ByteBuffer cords = ByteBuffer.wrap(Arrays.copyOfRange(data, 16, 24));
-				int x = cords.getInt(0);
-				int y = cords.getInt(4);
-				//System.out.println("Position GET - " + x + " : " + y);
-				c.x = x;
-				c.y = y;
+
+				//Client send us a packet, they're alive
 				c.lastUpdate = System.currentTimeMillis();
-				this.repaint();
+
+				switch (packetID) {
+					case 0://Position only packet
+						int x = data.getInt(18);
+						int y = data.getInt(22);
+						//System.out.println("Position GET - " + x + " : " + y);
+						c.x = x;
+						c.y = y;
+						this.repaint();
+						break;
+					case 2://Cursor left screen (aka remove cursor)
+						this.cursors.remove(c);
+						this.repaint();
+						break;
+				}
+
 				return;
 			}
 		}
@@ -97,18 +132,29 @@ public class CursorLand extends JPanel {
 
 	}
 
+	protected void broadcastCursorExit() {
+		byte[] data = ByteBuffer.allocate(DATA_LENGTH).putShort((short) 2).put(this.uuid).array();
+
+		try {
+			this.socket.send(new DatagramPacket(data, DATA_LENGTH, this.group, Start.PORT_NUMBER));
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
 	protected void sendPosition(int x, int y) {
+		//2 bytes = packet ID
 		//16 bytes = our uuid
 		//4 bytes = x value
 		//4 bytes = y value
 
-		if ((System.currentTimeMillis() - this.lastSent) > 100) {
+		if ((System.currentTimeMillis() - this.lastSent) > 100) {//Simple bandwidth throttler
 
 			this.lastSent = System.currentTimeMillis();
 
-			//System.out.println("Sending position - " + x + ":" + y + " | " + this.byteCounter);
+			//System.out.println("Sending position - " + x + ":" + y);
 
-			byte[] data = ByteBuffer.allocate(DATA_LENGTH).put(this.uuid).putInt(x).putInt(y).array();
+			byte[] data = ByteBuffer.allocate(DATA_LENGTH).putShort((short) 0).put(this.uuid).putInt(x).putInt(y).array();
 
 			try {
 				this.socket.send(new DatagramPacket(data, DATA_LENGTH, this.group, Start.PORT_NUMBER));
@@ -133,6 +179,7 @@ public class CursorLand extends JPanel {
 
 	public void start() {
 		this.cleanupTimer.scheduleAtFixedRate(new CursorCleanupThread(this), 0, 1000);
+		this.keepAliveTimer.scheduleAtFixedRate(new KeepAliveTask(this), 0, 1000);
 		new UDPReadThread(this).start();
 	}
 
