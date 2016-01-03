@@ -1,5 +1,6 @@
 # UDP-CursorLand
 This is an experimental project which uses the UDP protocol in IP Multicasting.
+![Screenshot of the program](screenshot.png?raw=true "Program Screenshot")
 
 #What does it do?
 This program opens up a window. You can move your cursor around the window, and any other client connected to the same network as you are on can also see your cursor too, and vice versa. This program has no limitations to how many clients it can support, only the network itself. What's cool is that this entire program is serverless, and is a peer-to-peer program.

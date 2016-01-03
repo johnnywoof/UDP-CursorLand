@@ -19,7 +19,7 @@ public class CursorObject {
 	@Override
 	public boolean equals(Object o) {
 
-		return o instanceof CursorObject && Arrays.equals(((CursorObject) o).uuid, this.uuid);
+		return o == this || o instanceof CursorObject && Arrays.equals(((CursorObject) o).uuid, this.uuid);
 
 	}
 
