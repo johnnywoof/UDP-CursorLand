@@ -109,8 +109,8 @@ public class CursorLand extends JPanel {
 
 				switch (packetID) {
 					case 0://Position only packet
-						int x = data.getInt(18);
-						int y = data.getInt(22);
+						int x = data.getInt();
+						int y = data.getInt();
 						//System.out.println("Position GET - " + x + " : " + y);
 						c.x = x;
 						c.y = y;
@@ -126,9 +126,12 @@ public class CursorLand extends JPanel {
 			}
 		}
 
-		//System.out.println("UUID not found. Creating a new cursor");
+		if (packetID == 0) {//Position packet
 
-		this.cursors.add(new CursorObject(uuid));
+			//System.out.println("UUID not found. Creating a new cursor");
+			this.cursors.add(new CursorObject(uuid));
+
+		}
 
 	}
 
